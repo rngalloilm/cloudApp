@@ -1,0 +1,44 @@
+# Node.js
+
+# 1. TRIGGER
+# This tells the pipeline to automatically run ONLY when code is pushed to the 'main' branch.
+# Change 'main' to target branch.
+trigger:
+- main
+
+# 2. POOL: This specifies what kind of virtual machine to run the build on.
+pool:
+  vmImage: ubuntu-latest
+
+# 3. STEPS: These are the actual commands that run during the build. App is using node:lts.
+steps:
+- task: NodeTool@0
+  inputs:
+    versionSpec: '22.x'
+  displayName: 'Install Node.js'
+
+- script: npm install
+  displayName: 'Install dependencies (npm install)'
+
+# Add a 'build' script in package.json
+- script: npm run build 
+  displayName: 'Run build script'
+
+# 4. PUBLISH ARTIFACT
+# It takes the output of your build (the 'build' or 'dist' folder)
+# and packages it into a file that the Release Pipeline can use.
+- task: ArchiveFiles@2
+  inputs:
+    rootFolderOrFile: '$(Build.BinariesDirectory)' # The directory your build command created the files in. (Often 'build' or 'dist' in Node).
+    includeRootFolder: false
+    archiveType: 'zip'
+    archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip' # Creates a zip file
+    replaceExistingArchive: true
+  displayName: 'Archive build output'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'drop' # Name of artifact. 'drop' is a standard convention.
+    publishLocation: 'Container'
+  displayName: 'Publish Artifact: drop'
