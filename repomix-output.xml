@@ -1,0 +1,654 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+Dockerfile
+package.json
+README.md
+src/api/APIRoutes.js
+src/api/db/data/users.json
+src/api/db/UserDAO.js
+src/middleware/TokenMiddleware.js
+src/routes.js
+src/server.js
+static/css/index.css
+static/css/login.css
+static/js/auth.js
+static/js/common.js
+templates/index.html
+templates/login.html
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="Dockerfile">
+FROM node:lts
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
+</file>
+
+<file path="src/api/APIRoutes.js">
+const express = require('express');
+const UserDAO = require('./db/UserDAO.js');
+const cookieParser = require('cookie-parser');
+const apiRouter = express.Router();
+
+apiRouter.use(cookieParser());
+apiRouter.use(express.json());
+const { generateToken, removeToken, TokenMiddleware } = require('../middleware/TokenMiddleware');
+
+// Apply TokenMiddleware to all routes except login and logout
+apiRouter.use((req, res, next) => {
+    if (req.path === '/users/login' || req.path === '/users/logout') {
+        next();
+    } else {
+        TokenMiddleware(req, res, next);
+    }
+});
+
+// Login route
+apiRouter.post('/users/login', (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Credentials not provided' });
+    }
+
+    UserDAO.getUserByCredentials(email, password)
+        .then((user) => {
+            generateToken(res, user);
+            res.json({ user });
+        })
+        .catch((error) => {
+            res.status(error.code || 500).json({ error: error.message });
+        });
+});
+
+// Logout route
+apiRouter.post('/users/logout', (req, res) => {
+    removeToken(res);
+    res.json({ success: true });
+});
+
+// Get current user
+apiRouter.get('/users/current', (req, res) => {
+    res.json({ user: req.user });
+});
+
+module.exports = apiRouter;
+</file>
+
+<file path="src/api/db/data/users.json">
+{
+  "1": {
+    "id": 1,
+    "first_name": "Stu",
+    "last_name": "Dent",
+    "username": "student",
+    "email": "student@example.com",
+    "avatar": "https://robohash.org/veniamdoloresenim.png?size=64x64&set=set1",
+    "salt": "48c8947f69c054a5caa934674ce8881d02bb18fb59d5a63eeaddff735b0e9",
+    "password": "83d9bdb5e20f3571b087db9aabf190a296741c3e864d7742f35658cfccc1b79c4599aad25084aa9a28c649a50c92244227b3e53e197621301d619d1ea01873c4"
+  },
+  "2": {
+    "id": 2,
+    "first_name": "Gra",
+    "last_name": "Duate",
+    "username": "graduate",
+    "email": "john@example.com",
+    "avatar": "https://robohash.org/nullaautemin.png?size=64x64&set=set1",
+    "salt": "801e87294783281ae49fc8287a0fd86779b27d7972d3e84f0fa0d826d7cb67dfefc",
+    "password": "e289219c34f9a32ebc82393f09719b7f34872de95463242b5ffe8bb4b11a5fe7d454f9f5d082c8207c5d69b220ba06624b4bb15ffa05cc7d7d53c43f9e96da6a"
+  }
+}
+</file>
+
+<file path="src/api/db/UserDAO.js">
+const crypto = require('crypto');
+const users = require('./data/users.json');
+
+function getFilteredUser(user) {
+    return {
+        id: user.id,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        username: user.username,
+        email: user.email,
+        avatar: user.avatar
+    };
+}
+
+module.exports = {
+    getUserByCredentials: (email, password) => {
+        return new Promise((resolve, reject) => {
+            // Find user by email (convert users object to array first)
+            const user = Object.values(users).find(user => user.email === email);
+            if (!user) {
+                reject({ code: 401, message: "No such user" });
+                return;
+            }
+
+            crypto.pbkdf2(
+                password,
+                user.salt,
+                100000,
+                64,
+                'sha512',
+                (err, derivedKey) => {
+                    if (err) {
+                        reject({ code: 500, message: "Error hashing password" });
+                        return;
+                    }
+
+                    const hashedAttempt = derivedKey.toString('hex');
+                    if (crypto.timingSafeEqual(
+                        Buffer.from(user.password, 'hex'),
+                        Buffer.from(hashedAttempt, 'hex')
+                    )) {
+                        resolve(getFilteredUser(user));
+                    } else {
+                        reject({ code: 401, message: "Invalid password" });
+                    }
+                }
+            );
+        });
+    }
+};
+</file>
+
+<file path="src/middleware/TokenMiddleware.js">
+const crypto = require('crypto');
+const Buffer = require('buffer').Buffer;
+
+const SECRET_KEY = 'your-secret-key-here';
+const TOKEN_COOKIE_NAME = 'SuperToken';
+
+function base64UrlEncode(str) {
+    return Buffer.from(str).toString('base64')
+        .replace(/=/g, '')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_');
+}
+
+function base64UrlDecode(str) {
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) {
+        str += '=';
+    }
+    return Buffer.from(str, 'base64').toString();
+}
+
+function createJWT(payload) {
+    const header = {
+        alg: 'HS256',
+        typ: 'JWT'
+    };
+
+    const encodedHeader = base64UrlEncode(JSON.stringify(header));
+    const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+
+    const signature = crypto
+        .createHmac('sha256', SECRET_KEY)
+        .update(`${encodedHeader}.${encodedPayload}`)
+        .digest('base64')
+        .replace(/=/g, '')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_');
+
+    return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+function verifyJWT(token) {
+    try {
+        const [encodedHeader, encodedPayload, signature] = token.split('.');
+        
+        // Verify signature
+        const expectedSignature = crypto
+            .createHmac('sha256', SECRET_KEY)
+            .update(`${encodedHeader}.${encodedPayload}`)
+            .digest('base64')
+            .replace(/=/g, '')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_');
+
+        if (signature !== expectedSignature) {
+            return null;
+        }
+
+        const payload = JSON.parse(base64UrlDecode(encodedPayload));
+
+        // Check expiration
+        if (payload.exp && Date.now() >= payload.exp * 1000) {
+            return null;
+        }
+
+        return payload;
+    } catch (err) {
+        return null;
+    }
+}
+
+function TokenMiddleware(req, res, next) {
+    const token = req.cookies[TOKEN_COOKIE_NAME];
+    
+    if (!token) {
+        return res.status(401).json({ error: 'Not Authenticated' });
+    }
+
+    const payload = verifyJWT(token);
+    if (!payload) {
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    req.user = payload.user;
+    next();
+}
+
+function generateToken(res, user) {
+    const payload = {
+        user: user,
+        exp: Math.floor(Date.now() / 1000) + 3600
+    };
+
+    const token = createJWT(payload);
+
+    res.cookie(TOKEN_COOKIE_NAME, token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 3600000
+    });
+}
+
+function removeToken(res) {
+    res.clearCookie(TOKEN_COOKIE_NAME);
+}
+
+module.exports = {
+    TokenMiddleware,
+    generateToken,
+    removeToken
+};
+</file>
+
+<file path="src/routes.js">
+const express = require('express');
+const path = require('path');
+const router = express.Router();
+
+// API Routes
+const APIRoutes = require('./api/APIRoutes.js');
+const html_dir = path.join(__dirname, '../templates/');
+router.use('/api', APIRoutes);
+
+
+// Frontend Routes
+router.get('/', (req, res) => {
+    res.sendFile(`${html_dir}index.html`);
+});
+
+router.get('/login', (req, res) => {
+    res.sendFile(`${html_dir}login.html`);
+});
+
+module.exports = router;
+</file>
+
+<file path="src/server.js">
+const path = require('path');
+const express = require('express');
+const cookieParser = require('cookie-parser');
+const app = express();
+
+// Middleware
+app.use(express.json());
+app.use(cookieParser());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, '..', 'static')));
+app.use(express.static(path.join(__dirname, '..', 'templates')));
+
+
+// Routes
+const routes = require('./routes');
+app.use(routes);
+
+// Start server
+const PORT = 3000;
+app.listen(PORT, () => console.log(`Server listening on port: ${PORT}`));
+</file>
+
+<file path="static/css/index.css">
+body {
+    font-family: Arial, sans-serif;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    margin-right: 20px;
+}
+
+.logout-btn {
+    background: #dc3545;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+</file>
+
+<file path="static/css/login.css">
+body {
+    font-family: Arial, sans-serif;
+    max-width: 400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+input {
+    width: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+}
+
+button {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.error {
+    color: red;
+    margin-top: 10px;
+}
+</file>
+
+<file path="static/js/auth.js">
+// Check authentication state on page load
+function checkAuth() {
+    fetch('/api/users/current', {
+        credentials: 'include'
+    })
+    .then(response => {
+        if (!response.ok) {
+            if (window.location.pathname !== '/login') {
+                window.location.href = '/login';
+            }
+            return;
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data && data.user && window.location.pathname === '/login') {
+            window.location.href = '/';
+        } else if (data && data.user) {
+            displayUserInfo(data.user);
+        }
+    });
+}
+
+// Display user info on the page
+function displayUserInfo(user) {
+    if (document.getElementById('username')) {
+        document.getElementById('username').textContent = `@${user.username}`;
+    }
+    if (document.getElementById('fullname')) {
+        document.getElementById('fullname').textContent = `${user.first_name} ${user.last_name}`;
+    }
+    if (document.getElementById('avatar')) {
+        document.getElementById('avatar').src = user.avatar;
+    }
+}
+
+// Setup login form
+function setupLoginForm() {
+    const form = document.getElementById('loginForm');
+    if (form) {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            fetch('/api/users/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email, password }),
+                credentials: 'include'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw err; });
+                }
+                return response.json();
+            })
+            .then(() => {
+                window.location.href = '/';
+            })
+            .catch(err => {
+                document.getElementById('error').textContent = err.error || 'Login failed';
+            });
+        });
+    }
+}
+
+// Setup logout button
+function setupLogout() {
+    const logoutBtn = document.getElementById('logout');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            fetch('/api/users/logout', {
+                method: 'POST',
+                credentials: 'include'
+            })
+            .then(() => {
+                window.location.href = '/login';
+            });
+        });
+    }
+}
+
+// Initialize when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    checkAuth();
+    setupLoginForm();
+    setupLogout();
+});
+</file>
+
+<file path="static/js/common.js">
+// Dark mode functionality
+const darkModeToggle = document.querySelector('.dark-mode-toggle');
+
+const DARK_MODE_KEY = 'darkMode';
+
+if (darkModeToggle) {
+    darkModeToggle.addEventListener('change', e => {
+        if (e.target.checked) {
+            document.body.classList.add('dark');
+            localStorage.setItem(DARK_MODE_KEY, '1');
+        } else {
+            document.body.classList.remove('dark');
+            localStorage.setItem(DARK_MODE_KEY, '0');
+        }
+    });
+
+    // Restore dark mode setting
+    if (localStorage.getItem(DARK_MODE_KEY) === '1') {
+        darkModeToggle.checked = true;
+        document.body.classList.add('dark');
+    }
+}
+
+// Utility functions
+function showError(message) {
+    const errorEl = document.getElementById('error');
+    if (errorEl) {
+        errorEl.textContent = message;
+    }
+}
+
+function clearError() {
+    const errorEl = document.getElementById('error');
+    if (errorEl) {
+        errorEl.textContent = '';
+    }
+}
+</file>
+
+<file path="templates/index.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home</title>
+    <link rel="stylesheet" href="/css/index.css">
+</head>
+<body>
+    <div class="user-info">
+        <img id="avatar" class="avatar" src="" alt="User Avatar">
+        <div>
+            <h1 id="username"></h1>
+            <p id="fullname"></p>
+        </div>
+    </div>
+    <button id="logout" class="logout-btn">Logout</button>
+
+    <script src="/js/common.js"></script>
+    <script src="/js/auth.js"></script>
+</body>
+</html>
+</file>
+
+<file path="templates/login.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="/css/login.css">
+</head>
+<body>
+    <h1>Login</h1>
+    <form id="loginForm">
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" required>
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" required>
+        </div>
+        <button type="submit">Login</button>
+        <div id="error" class="error"></div>
+    </form>
+
+    <script src="/js/common.js"></script>
+    <script src="/js/auth.js"></script>
+</body>
+</html>
+</file>
+
+<file path="package.json">
+{
+  "name": "miniproject5",
+  "version": "1.0.0",
+  "description": "JWT Authentication App",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "build": "echo 'No build setup is needed'"
+  },
+  "dependencies": {
+    "buffer": "^6.0.3",
+    "cookie-parser": "^1.4.6",
+    "crypto": "^1.0.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
+</file>
+
+<file path="README.md">
+# Mini Project 5
+</file>
+
+</files>
