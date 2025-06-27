@@ -4,7 +4,7 @@
 # This tells the pipeline to automatically run ONLY when code is pushed to the 'main' branch.
 # Change 'main' to target branch.
 trigger:
-- main
+- pipeline
 
 # 2. POOL: This specifies what kind of virtual machine to run the build on.
 pool:
