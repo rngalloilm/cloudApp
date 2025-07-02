@@ -8,50 +8,47 @@ pool:
 
 # Define variables.
 variables:
-  # The name of your Azure Container Registry.
-  azureContainerRegistry: 'crcentralusnick' 
-
-  # The name of your Azure subscription service connection.
-  azureSubscription: 'Azure DevTest subscription 1' 
-
-  # The repository name for your Docker image within the ACR.
-  imageRepository: 'image-nodeapp'
-
-  # Path to your Dockerfile.
-  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
-
-  # A unique tag for the image, using the build ID.
-  tag: '$(Build.BuildId)'
+- group: GitHub-Credentials
+- name: imageRepository
+  value: 'mynode-app' # The name of the image
+- name: dockerfilePath
+  value: '$(Build.SourcesDirectory)/Dockerfile'
+- name: tag
+  value: '$(Build.BuildId)'
+# The full path for the image in GitHub Container Registry
+- name: imageName
+  value: 'ghcr.io/$(GITHUB_USER)/$(imageRepository)'
 
 # Pipelines are organized into stages. We have one stage: Build.
 stages:
 - stage: Build
-  displayName: 'Build and Push Stage'
+  displayName: 'Build and Push to GHCR'
   jobs:
   - job: Build
     displayName: 'Build and Push Docker image'
     steps:
-    # Step 1: Login to Azure Container Registry
-    # This task requires a Service Connection to your Azure Subscription.
+    # Step 1: Login to GitHub Container Registry
     - task: Docker@2
-      displayName: 'Login to ACR'
+      displayName: 'Login to ghcr.io'
       inputs:
         command: 'login'
-        containerRegistry: '$(azureContainerRegistry)'
-        
-    # Step 2: Build and Push the Docker image
+        containerRegistry: 'Other'
+        dockerRegistryEndpoint: 'GitHubContainerRegistry'
+        dockerRegistryServiceConnection: |
+          {
+            "username": "$(GITHUB_USER)",
+            "password": "$(GITHUB_PAT)",
+            "registry": "https://ghcr.io"
+          }
+
+    # Step 2: Build and Push the Docker image to ghcr.io
     - task: Docker@2
-      displayName: 'Build and Push image to ACR'
+      displayName: 'Build and Push image to ghcr.io'
       inputs:
         command: 'buildAndPush'
-        repository: '$(imageRepository)'
+        # The repository name MUST be the full path
+        repository: '$(imageName)'
         dockerfile: '$(dockerfilePath)'
-        containerRegistry: '$(azureContainerRegistry)'
         tags: |
           $(tag)
           latest
-
-    # Step 3: Publish the pipeline artifact
-    # This makes the built image information available to the Release pipeline.
-    - publish: $(Build.ArtifactStagingDirectory)
-      artifact: drop
