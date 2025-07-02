@@ -1,25 +1,26 @@
-# This pipeline is triggered on pushes to the 'pipeline' branch.
-trigger:
-- pipeline
+# azure-pipelines.yml
 
-# Use a Microsoft-hosted agent running Ubuntu.
+trigger:
+- main
+
 pool:
   vmImage: 'ubuntu-latest'
 
-# Define variables.
+# This links the 'GITHUB_USER' and 'GITHUB_PAT' variables from your Library
 variables:
 - group: GitHub-Credentials
 - name: imageRepository
-  value: 'mynode-app' # The name of the image
+  value: 'mynode-app' # The name of your image package
 - name: dockerfilePath
   value: '$(Build.SourcesDirectory)/Dockerfile'
 - name: tag
   value: '$(Build.BuildId)'
-# The full path for the image in GitHub Container Registry
+# This is the full image path for GitHub Container Registry
+# IMPORTANT: It MUST be lowercase. GitHub enforces this.
 - name: imageName
   value: 'ghcr.io/$(GITHUB_USER)/$(imageRepository)'
 
-# Pipelines are organized into stages. We have one stage: Build.
+
 stages:
 - stage: Build
   displayName: 'Build and Push to GHCR'
@@ -27,26 +28,21 @@ stages:
   - job: Build
     displayName: 'Build and Push Docker image'
     steps:
-    # Step 1: Login to GitHub Container Registry
-    - task: Docker@2
-      displayName: 'Login to ghcr.io'
-      inputs:
-        command: 'login'
-        containerRegistry: 'Other'
-        dockerRegistryEndpoint: 'GitHubContainerRegistry'
-        dockerRegistryServiceConnection: |
-          {
-            "username": "$(GITHUB_USER)",
-            "password": "$(GITHUB_PAT)",
-            "registry": "https://ghcr.io"
-          }
+    
+    # --- THIS IS THE FIX ---
+    # Use a simple command-line script to log in.
+    # It pipes the secret PAT into the docker login command. This is secure and direct.
+    - script: |
+        echo "$(GITHUB_PAT)" | docker login ghcr.io -u "$(GITHUB_USER)" --password-stdin
+      displayName: 'Login to GitHub Container Registry (ghcr.io)'
 
-    # Step 2: Build and Push the Docker image to ghcr.io
+    # This task now works because the agent is already logged into ghcr.io
     - task: Docker@2
       displayName: 'Build and Push image to ghcr.io'
       inputs:
         command: 'buildAndPush'
-        # The repository name MUST be the full path
+        # The repository name must be the full path.
+        # Azure DevOps automatically adds the registry from the login context.
         repository: '$(imageName)'
         dockerfile: '$(dockerfilePath)'
         tags: |
