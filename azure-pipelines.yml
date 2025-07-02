@@ -29,7 +29,6 @@ stages:
     displayName: 'Build and Push Docker image'
     steps:
     
-    # --- THIS IS THE FIX ---
     # Use a simple command-line script to log in.
     # It pipes the secret PAT into the docker login command. This is secure and direct.
     - script: |
